@@ -1,10 +1,10 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Inject, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
 @Injectable()
 export class RedisService extends Redis implements OnModuleDestroy {
-  constructor(configService: ConfigService) {
+  constructor(@Inject(ConfigService) configService: ConfigService) {
     const isTest = configService.get<string>('NODE_ENV') === 'test';
     const redisUrl = isTest 
       ? configService.get<string>('REDIS_URL_TEST') || configService.get<string>('REDIS_URL')

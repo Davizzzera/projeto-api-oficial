@@ -55,10 +55,12 @@ export class AuthFixture {
       email,
       password,
       cleanup: async () => {
-        await this.prisma.membership.delete({ where: { id: membership.id } });
-        await this.prisma.user.delete({ where: { id: user.id } });
-        await this.prisma.organization.delete({ where: { id: org.id } });
-        await this.prisma.role.delete({ where: { id: role.id } });
+        await this.prisma.membership.deleteMany({ where: { id: membership.id } });
+        await this.prisma.organization.deleteMany({ where: { id: org.id } });
+        await this.prisma.user.deleteMany({ where: { id: user.id } });
+        if (role) {
+          await this.prisma.role.deleteMany({ where: { id: role.id } });
+        }
       }
     };
   }
@@ -67,6 +69,33 @@ export class AuthFixture {
     const fixture = await this.setupActiveUser();
     await this.prisma.user.update({
       where: { id: fixture.user.id },
+      data: { status: 'INACTIVE' }
+    });
+    return fixture;
+  }
+  
+  async setupDeletedUser() {
+    const fixture = await this.setupActiveUser();
+    await this.prisma.user.update({
+      where: { id: fixture.user.id },
+      data: { deletedAt: new Date() }
+    });
+    return fixture;
+  }
+  
+  async setupInactiveMembership() {
+    const fixture = await this.setupActiveUser();
+    await this.prisma.membership.update({
+      where: { id: fixture.membership.id },
+      data: { status: 'INACTIVE' }
+    });
+    return fixture;
+  }
+  
+  async setupInactiveOrganization() {
+    const fixture = await this.setupActiveUser();
+    await this.prisma.organization.update({
+      where: { id: fixture.org.id },
       data: { status: 'INACTIVE' }
     });
     return fixture;

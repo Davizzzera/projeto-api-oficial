@@ -51,15 +51,46 @@ try {
   console.log("\n🚀 Starting infrastructure for integration tests...");
   runCmd("docker compose -f infra/docker/docker-compose.test.yml up -d");
   
-  console.log("\n⏳ Waiting for database to be ready...");
-  // Sleep for a few seconds to let DB start
-  runCmd("node -e \"setTimeout(() => {}, 3000)\"");
+  console.log("\n⏳ Waiting for database and redis to be ready (max 60s)...");
+  
+  const checkHealth = (containerName) => {
+    try {
+      const output = execSync(`docker inspect --format="{{json .State.Health.Status}}" ${containerName}`).toString().trim();
+      return output === '"healthy"';
+    } catch (e) {
+      return false;
+    }
+  };
+
+  const startTime = Date.now();
+  let dbReady = false;
+  let redisReady = false;
+
+  while (Date.now() - startTime < 60000) {
+    if (!dbReady) dbReady = checkHealth("whatsapp-saas-postgres-test");
+    if (!redisReady) redisReady = checkHealth("whatsapp-saas-redis-test");
+    
+    if (dbReady && redisReady) break;
+    
+    // sleep 1 second
+    execSync("node -e \"setTimeout(() => {}, 1000)\"");
+  }
+
+  if (!dbReady || !redisReady) {
+    console.error(`\n❌ Timeout waiting for services. DB: ${dbReady}, Redis: ${redisReady}`);
+    throw new Error("Services did not become healthy in time.");
+  }
 
   console.log("\n🔄 Running database migrations...");
   runCmd("pnpm --filter @repo/database exec prisma migrate deploy", { DATABASE_URL: dbUrlTest });
 
   console.log("\n🧪 Running integration tests...");
-  runCmd("pnpm --filter @repo/api run test:integration", { DATABASE_URL_TEST: dbUrlTest, REDIS_URL_TEST: redisUrlTest });
+  runCmd("pnpm --filter @repo/api run test:integration", { 
+    DATABASE_URL: dbUrlTest, 
+    REDIS_URL: redisUrlTest,
+    DATABASE_URL_TEST: dbUrlTest, 
+    REDIS_URL_TEST: redisUrlTest 
+  });
   
   console.log("\n✅ Integration tests completed successfully!");
 } catch (error) {
