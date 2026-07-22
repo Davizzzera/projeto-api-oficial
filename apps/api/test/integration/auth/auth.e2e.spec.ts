@@ -9,6 +9,11 @@ import fastifyCookie from '@fastify/cookie';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import Redis from 'ioredis';
+import { RedisSessionSchema } from '../../../src/modules/identity/auth/schemas/redis-session.schema';
+
+interface FastifyWithCookie {
+  unsignCookie(value: string, secret: string): { valid: boolean; value: string | null; renewed: boolean };
+}
 
 describe('Auth Integration (E2E)', () => {
   let app: NestFastifyApplication;
@@ -22,7 +27,8 @@ describe('Auth Integration (E2E)', () => {
     await prisma.$connect();
     authFixture = new AuthFixture(prisma);
     
-    const redisUrl = process.env.REDIS_URL_TEST || 'redis://127.0.0.1:6380';
+    const redisUrl = process.env.REDIS_URL_TEST;
+    if (!redisUrl) throw new Error('REDIS_URL_TEST is required');
     redis = new Redis(redisUrl);
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -37,8 +43,11 @@ describe('Auth Integration (E2E)', () => {
     
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
     // Reusing the same cookie secret as the real app to allow signing/unsigning
+    const cookieSecret = configService.get<string>('SESSION_COOKIE_SECRET');
+    if (!cookieSecret) throw new Error('SESSION_COOKIE_SECRET is required');
+
     await app.register(fastifyCookie as Parameters<NestFastifyApplication['register']>[0], { 
-      secret: configService.get<string>('SESSION_COOKIE_SECRET') || 'test-cookie-secret' 
+      secret: cookieSecret 
     });
     
     await app.init();
@@ -83,6 +92,33 @@ describe('Auth Integration (E2E)', () => {
         expect(loginRes.statusCode).toBe(204);
         const sessionCookie = getCookie(loginRes.cookies, 'session_id');
         expect(sessionCookie).toBeDefined();
+
+        // Direct Redis Validation
+        const configService = app.get(ConfigService);
+        const cookieSecret = configService.get<string>('SESSION_COOKIE_SECRET');
+        const fastifyInstance = app.getHttpAdapter().getInstance() as unknown as FastifyWithCookie;
+        
+        const unsigned = fastifyInstance.unsignCookie(sessionCookie!.value, cookieSecret!);
+        expect(unsigned.valid).toBe(true);
+        expect(unsigned.value).not.toBeNull();
+        
+        const rawSessionId = unsigned.value!;
+        const hashedSessionId = createHash('sha256').update(rawSessionId).digest('hex');
+        
+        // Use test: prefix as configured in RedisService
+        const redisKey = `test:session:${hashedSessionId}`;
+        const sessionInRedis = await redis.get(redisKey);
+        expect(sessionInRedis).not.toBeNull();
+        
+        const parsedSession = JSON.parse(sessionInRedis!);
+        const validatedSession = RedisSessionSchema.parse(parsedSession);
+        
+        expect(validatedSession.userId).toBe(fixture.user.id);
+        expect(validatedSession.membershipId).toBe(fixture.membership.id);
+        expect(validatedSession.organizationId).toBe(fixture.org.id);
+        
+        const rawKeyExists = await redis.exists(`test:session:${rawSessionId}`);
+        expect(rawKeyExists).toBe(0);
       } finally {
         if (fixture) await fixture.cleanup();
       }
@@ -331,13 +367,23 @@ describe('Auth Integration (E2E)', () => {
 
         const sessionCookie = getCookie(loginRes.cookies, 'session_id');
 
-        // Remove the user from the organization
-        await prisma.membership.deleteMany({
-          where: {
-            userId: fixture.user.id,
-            organizationId: fixture.org.id
-          }
-        });
+        // Extract session ID and modify Redis data directly
+        const configService = app.get(ConfigService);
+        const cookieSecret = configService.get<string>('SESSION_COOKIE_SECRET');
+        const fastifyInstance = app.getHttpAdapter().getInstance() as unknown as FastifyWithCookie;
+        
+        const unsigned = fastifyInstance.unsignCookie(sessionCookie!.value, cookieSecret!);
+        const rawSessionId = unsigned.value!;
+        const hashedSessionId = createHash('sha256').update(rawSessionId).digest('hex');
+        
+        const redisKey = `test:session:${hashedSessionId}`;
+        const sessionDataStr = await redis.get(redisKey);
+        const sessionData = JSON.parse(sessionDataStr!);
+        
+        otherOrg = await authFixture.setupActiveUser();
+        
+        sessionData.organizationId = otherOrg.org.id;
+        await redis.set(redisKey, JSON.stringify(sessionData));
 
         const meRes = await app.inject({
           method: 'GET',
@@ -346,8 +392,13 @@ describe('Auth Integration (E2E)', () => {
         });
 
         expect(meRes.statusCode).toBe(401);
+        
+        // Assert session is invalidated (deleted from Redis)
+        const invalidatedSession = await redis.get(redisKey);
+        expect(invalidatedSession).toBeNull();
       } finally {
         if (fixture) await fixture.cleanup();
+        if (otherOrg) await otherOrg.cleanup();
       }
     });
 
@@ -380,7 +431,6 @@ describe('Auth Integration (E2E)', () => {
 
         const sessionCookie = getCookie(loginRes.cookies, 'session_id');
 
-        // 1. Get authenticated CSRF token
         const authCsrfRes = await app.inject({
           method: 'GET',
           url: '/auth/csrf',
@@ -389,6 +439,17 @@ describe('Auth Integration (E2E)', () => {
 
         expect(authCsrfRes.statusCode).toBe(200);
         const { csrfToken: authCsrfToken } = authCsrfRes.json<{ csrfToken: string }>();
+
+        // 2. Verify Redis key exists before logout
+        const configService = app.get(ConfigService);
+        const cookieSecret = configService.get<string>('SESSION_COOKIE_SECRET');
+        const fastifyInstance = app.getHttpAdapter().getInstance() as unknown as FastifyWithCookie;
+        const unsigned = fastifyInstance.unsignCookie(sessionCookie!.value, cookieSecret!);
+        const hashedSessionId = createHash('sha256').update(unsigned.value!).digest('hex');
+        const redisKey = `test:session:${hashedSessionId}`;
+        
+        const sessionBeforeLogout = await redis.get(redisKey);
+        expect(sessionBeforeLogout).not.toBeNull();
 
         // 3. Logout
         const logoutRes = await app.inject({
@@ -400,10 +461,14 @@ describe('Auth Integration (E2E)', () => {
 
         expect(logoutRes.statusCode).toBe(204);
         
-        // Session removed check via /auth/me
+        // Session removed check via Set-Cookie
         const clearedSessionCookie = getCookie(logoutRes.cookies, 'session_id');
         expect(clearedSessionCookie).toBeDefined();
         expect(clearedSessionCookie!.value).toBe('');
+        
+        // 4. Verify session is physically removed from Redis
+        const sessionAfterLogout = await redis.get(redisKey);
+        expect(sessionAfterLogout).toBeNull();
 
         // Verify session is invalidated via GET /auth/me
         const meRes = await app.inject({
