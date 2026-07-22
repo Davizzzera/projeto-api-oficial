@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { createPrismaClient, PlatformRole } from '../src/index';
+import { z } from 'zod';
+import { hashPassword } from '@repo/security';
 
 const prisma = createPrismaClient(process.env.DATABASE_URL!);
 
@@ -38,51 +40,50 @@ async function main() {
   }
 
   // 3. Organização demonstrativa
-  const orgSlug = process.env.SEED_ORGANIZATION_SLUG || 'demo-org';
-  const orgName = process.env.SEED_ORGANIZATION_NAME || 'Demo Organization';
-  let org = null;
+  const seedEnvSchema = z.object({
+    SEED_ADMIN_EMAIL: z.string().email(),
+    SEED_ADMIN_PASSWORD: z.string().min(1),
+    SEED_ORGANIZATION_NAME: z.string().min(1),
+    SEED_ORGANIZATION_SLUG: z.string().min(1)
+  });
 
-  if (orgSlug && orgName) {
-    org = await prisma.organization.upsert({
-      where: { slug: orgSlug },
-      update: {},
-      create: {
-        name: orgName,
-        slug: orgSlug,
-      },
-    });
+  const parsedEnv = seedEnvSchema.safeParse(process.env);
+  if (!parsedEnv.success) {
+    console.error("Variáveis de ambiente do seed ausentes ou inválidas:");
+    console.error(parsedEnv.error.flatten().fieldErrors);
+    process.exit(1);
   }
 
-  // 4. Usuário demonstrativo (Somente ADMIN, não SUPER_ADMIN)
-  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@demo.com';
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD || '123456';
-  let user = null;
+  const {
+    SEED_ADMIN_EMAIL,
+    SEED_ADMIN_PASSWORD,
+    SEED_ORGANIZATION_NAME,
+    SEED_ORGANIZATION_SLUG
+  } = parsedEnv.data;
 
-  if (adminEmail && adminPassword && org) {
-    // mock hash for seed (in a real scenario we use @repo/security or similar)
-    const mockPasswordHash = `$argon2id$v=19$m=65536,t=3,p=4$ZeTn6LKqsm+wckyQHt/NdQ$H9pp1IOKm/xOjOWgmhAoxUO6x8Hdbb6Fm0JP+OfwNMc`;
-    
-    // Check if user exists first to avoid re-hashing or overwriting password
-    const existingUser = await prisma.user.findUnique({
-      where: { emailNormalized: adminEmail.toLowerCase() }
+  let org = await prisma.organization.upsert({
+    where: { slug: SEED_ORGANIZATION_SLUG },
+    update: {},
+    create: {
+      name: SEED_ORGANIZATION_NAME,
+      slug: SEED_ORGANIZATION_SLUG,
+    },
+  });
+
+  let user = await prisma.user.findUnique({
+    where: { emailNormalized: SEED_ADMIN_EMAIL.toLowerCase() }
+  });
+
+  if (!user) {
+    const passwordHash = await hashPassword(SEED_ADMIN_PASSWORD);
+    user = await prisma.user.create({
+      data: {
+        email: SEED_ADMIN_EMAIL,
+        emailNormalized: SEED_ADMIN_EMAIL.toLowerCase(),
+        name: 'Admin',
+        passwordHash,
+      },
     });
-
-    if (!existingUser) {
-      const passwordHash = mockPasswordHash;
-      user = await prisma.user.create({
-        data: {
-          email: adminEmail,
-          emailNormalized: adminEmail.toLowerCase(),
-          name: 'Demo Admin',
-          passwordHash,
-        },
-      });
-    } else {
-      user = await prisma.user.update({
-        where: { id: existingUser.id },
-        data: { passwordHash: mockPasswordHash },
-      });
-    }
   }
 
   // 5. Vincular usuário à organização (Membership)

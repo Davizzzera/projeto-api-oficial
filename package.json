@@ -18,7 +18,7 @@
     "test:db:migrate": "pnpm --filter @repo/database exec prisma migrate deploy",
     "test:db:down": "docker compose -f infra/docker/docker-compose.test.yml down -v",
     "test:integration": "pnpm --filter @repo/api run test:integration",
-    "test:integration:local": "pnpm run test:db:up && pnpm run test:db:migrate && pnpm run test:integration && pnpm run test:db:down",
+    "test:integration:local": "set \"DATABASE_URL=postgresql://user:password@localhost:5433/whatsapp_test\" && set \"REDIS_URL=redis://localhost:6380\" && pnpm run test:db:up && pnpm run test:db:migrate && pnpm run test:integration && pnpm run test:db:down",
     "db:migrate": "pnpm --filter @repo/database migrate",
     "db:seed": "pnpm --filter @repo/database seed",
     "db:studio": "pnpm --filter @repo/database studio"

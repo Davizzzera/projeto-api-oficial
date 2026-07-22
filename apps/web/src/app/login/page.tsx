@@ -1,26 +1,72 @@
 "use client"
 
 import { useState } from "react"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
 import { APP_NAME } from "@/lib/constants"
 import { Network, Loader2, AlertCircle } from "lucide-react"
 
 export default function LoginPage() {
+  const router = useRouter()
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (loading) return
+
     setLoading(true)
-    setError(false)
-    setTimeout(() => {
+    setErrorMsg(null)
+
+    const formData = new FormData(e.currentTarget)
+    const email = formData.get("email") as string
+    const password = formData.get("password") as string
+
+    try {
+      // Step 1: Get CSRF token
+      const csrfRes = await fetch("/api/auth/csrf", {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      })
+
+      if (!csrfRes.ok) {
+        throw new Error("Não foi possível iniciar a sessão segura.")
+      }
+
+      const { csrfToken } = await csrfRes.json()
+
+      // Step 2: Login
+      const loginRes = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": csrfToken
+        },
+        credentials: "include",
+        body: JSON.stringify({ email, password })
+      })
+
+      if (loginRes.ok || loginRes.status === 204) {
+        router.push("/dashboard")
+        return
+      }
+
+      if (loginRes.status === 401) {
+        setErrorMsg("Credenciais inválidas. Tente novamente.")
+      } else if (loginRes.status === 403) {
+        setErrorMsg("Sessão inválida ou expirada. Tente novamente.")
+      } else if (loginRes.status === 429) {
+        setErrorMsg("Muitas tentativas. Tente novamente mais tarde.")
+      } else {
+        setErrorMsg("Erro ao autenticar. Tente novamente.")
+      }
+    } catch {
+      setErrorMsg("Erro de conexão. Verifique sua rede e tente novamente.")
+    } finally {
       setLoading(false)
-      setError(true) // Simulate error for demo
-    }, 1500)
+    }
   }
 
   return (
@@ -69,10 +115,10 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
+            {errorMsg && (
               <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 flex items-center gap-2 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4" />
-                Credenciais inválidas. Tente novamente.
+                {errorMsg}
               </div>
             )}
             <div className="space-y-4">
@@ -80,6 +126,7 @@ export default function LoginPage() {
                 <Label htmlFor="email">Email corporativo</Label>
                 <Input 
                   id="email" 
+                  name="email"
                   type="email" 
                   placeholder="nome@empresa.com" 
                   required 
@@ -89,24 +136,15 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Senha</Label>
-                  <Link href="#" className="text-sm text-primary hover:underline font-medium">
-                    Esqueceu a senha?
-                  </Link>
                 </div>
                 <Input 
                   id="password" 
+                  name="password"
                   type="password" 
                   required 
                   className="bg-surface"
                 />
               </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox id="remember" />
-              <Label htmlFor="remember" className="text-sm font-normal text-muted-foreground cursor-pointer">
-                Lembrar meu acesso por 30 dias
-              </Label>
             </div>
 
             <Button type="submit" className="w-full h-11 text-base font-medium" disabled={loading}>
@@ -121,12 +159,6 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="text-center text-sm text-muted-foreground pt-4">
-            Ainda não possui uma conta?{" "}
-            <Link href="#" className="text-primary font-medium hover:underline">
-              Fale com um consultor
-            </Link>
-          </div>
         </div>
       </div>
     </div>
