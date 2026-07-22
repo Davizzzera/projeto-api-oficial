@@ -1,0 +1,22 @@
+{
+  "name": "@repo/security",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "argon2": "0.41.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^1.6.0"
+  }
+}

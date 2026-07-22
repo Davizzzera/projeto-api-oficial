@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: whatsapp-saas-postgres
+    profiles: ["core", "full"]
+    environment:
+      POSTGRES_USER: whatsapp_user
+      POSTGRES_PASSWORD: CHANGE_ME_DB_PASSWORD
+      POSTGRES_DB: whatsapp_saas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatsapp_user -d whatsapp_saas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  redis:
+    image: redis:7-alpine
+    container_name: whatsapp-saas-redis
+    profiles: ["core", "full"]
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: whatsapp-saas-minio
+    profiles: ["media", "full"]
+    environment:
+      # Root credentials used ONLY for bootstrap
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadminpassword
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  minio-setup:
+    image: quay.io/minio/mc
+    container_name: whatsapp-saas-minio-setup
+    profiles: ["media", "full"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Connecting to MinIO...' &&
+      mc alias set myminio http://minio:9000 minioadmin minioadminpassword &&
+      echo 'Creating bucket...' &&
+      mc mb myminio/whatsapp-media --ignore-existing &&
+      echo 'Setting bucket policy...' &&
+      mc anonymous set download myminio/whatsapp-media &&
+      echo 'Creating restricted user...' &&
+      mc admin user add myminio whatsapp_app CHANGE_ME_MINIO_APP_SECRET &&
+      echo 'Creating policy for restricted user...' &&
+      cat <<EOF > /tmp/policy.json
+      {
+        \"Version\": \"2012-10-17\",
+        \"Statement\": [
+          {
+            \"Effect\": \"Allow\",
+            \"Action\": [\"s3:*\"],
+            \"Resource\": [\"arn:aws:s3:::whatsapp-media/*\", \"arn:aws:s3:::whatsapp-media\"]
+          }
+        ]
+      }
+      EOF
+      mc admin policy create myminio app_policy /tmp/policy.json &&
+      mc admin policy attach myminio app_policy --user=whatsapp_app &&
+      echo 'MinIO setup complete.'
+      "
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: whatsapp-saas-mailpit
+    profiles: ["mail", "full"]
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  default:
+    name: whatsapp-saas-network
