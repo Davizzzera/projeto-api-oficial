@@ -6,7 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { useLayout } from "./layout-context"
 import { OrganizationSwitcher } from "@/components/ui-custom/organization-switcher"
 import { Input } from "@/components/ui/input"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import UserMenu from "./user-menu"
 
 export function Header() {
   const { setSidebarOpen, sidebarCollapsed, setSidebarCollapsed } = useLayout()
@@ -55,13 +55,7 @@ export function Header() {
         </Button>
         
         <ThemeToggle />
-        
-        <div className="ml-2 pl-2 border-l">
-          <Avatar className="h-8 w-8 cursor-pointer ring-offset-background transition-all hover:ring-2 hover:ring-ring hover:ring-offset-2">
-            <AvatarImage src="https://github.com/shadcn.png" alt="@admin" />
-            <AvatarFallback>AD</AvatarFallback>
-          </Avatar>
-        </div>
+        <UserMenu />
       </div>
     </header>
   )

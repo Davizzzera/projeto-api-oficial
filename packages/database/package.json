@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "generate": "prisma generate",
     "validate": "prisma validate",
-    "build": "tsc",
+    "build": "pnpm run generate && tsc",
     "clean": "rm -rf dist src/generated",
     "migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts"
@@ -16,7 +16,9 @@
   "dependencies": {
     "@prisma/adapter-pg": "7.8.0",
     "@prisma/client": "7.8.0",
-    "pg": "^8.11.3"
+    "@repo/security": "workspace:*",
+    "pg": "^8.11.3",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -57,3 +57,8 @@ logs/
 
 # agent metadata
 .agents/
+**/dist/
+**/.next/
+**/.turbo/
+**/coverage/
+src/generated/

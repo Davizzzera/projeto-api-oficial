@@ -1,14 +1,19 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Inject, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
 @Injectable()
 export class RedisService extends Redis implements OnModuleDestroy {
-  constructor(configService: ConfigService) {
+  constructor(@Inject(ConfigService) configService: ConfigService) {
     const isTest = configService.get<string>('NODE_ENV') === 'test';
-    const redisUrl = isTest 
-      ? configService.get<string>('REDIS_URL_TEST') || configService.get<string>('REDIS_URL')
-      : configService.get<string>('REDIS_URL');
+    let redisUrl: string | undefined;
+    if (isTest) {
+      redisUrl = configService.get<string>('REDIS_URL_TEST');
+      if (!redisUrl) throw new Error('REDIS_URL_TEST is required in test environment');
+    } else {
+      redisUrl = configService.get<string>('REDIS_URL');
+      if (!redisUrl) throw new Error('REDIS_URL is required');
+    }
 
     super(redisUrl!, {
       keyPrefix: isTest ? 'test:' : '',

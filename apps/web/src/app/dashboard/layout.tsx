@@ -21,5 +21,7 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  return <AppShell>{children}</AppShell>;
+  const { user, organization } = await res.json();
+
+  return <AppShell user={user} organization={organization}>{children}</AppShell>;
 }

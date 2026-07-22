@@ -2,7 +2,7 @@
 
 import { Sidebar } from "./sidebar"
 import { Header } from "./header"
-import { LayoutProvider, useLayout } from "./layout-context"
+import { LayoutProvider, useLayout, UserContext, OrganizationContext } from "./layout-context"
 import { cn } from "@/lib/utils"
 
 function AppShellInner({ children }: { children: React.ReactNode }) {
@@ -26,9 +26,17 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ 
+  children,
+  user,
+  organization
+}: { 
+  children: React.ReactNode
+  user?: UserContext
+  organization?: OrganizationContext
+}) {
   return (
-    <LayoutProvider>
+    <LayoutProvider user={user} organization={organization}>
       <AppShellInner>{children}</AppShellInner>
     </LayoutProvider>
   )

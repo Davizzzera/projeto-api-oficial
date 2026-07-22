@@ -96,6 +96,33 @@ export const PaginationMetaSchema = z.object({
   totalPages: z.number().int().nonnegative()
 });
 
+// Auth Public Contracts
+export const LoginInputSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+export const AuthCsrfResponseSchema = z.object({
+  csrfToken: z.string()
+});
+
+export const AuthMeResponseSchema = z.object({
+  user: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    email: z.string().email()
+  }),
+  organization: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    slug: z.string()
+  }),
+  membership: z.object({
+    id: z.string().uuid(),
+    roleCode: z.string()
+  })
+});
+
 // Types derived from schemas
 export type UserSummary = z.infer<typeof UserSummarySchema>;
 export type OrganizationSummary = z.infer<typeof OrganizationSummarySchema>;
@@ -104,6 +131,10 @@ export type RoleSummary = z.infer<typeof RoleSummarySchema>;
 export type PermissionSummary = z.infer<typeof PermissionSummarySchema>;
 export type SecurityEventSummary = z.infer<typeof SecurityEventSummarySchema>;
 export type AuditLogSummary = z.infer<typeof AuditLogSummarySchema>;
+
+export type LoginInput = z.infer<typeof LoginInputSchema>;
+export type AuthCsrfResponse = z.infer<typeof AuthCsrfResponseSchema>;
+export type AuthMeResponse = z.infer<typeof AuthMeResponseSchema>;
 
 export type PaginationInput = z.infer<typeof PaginationInputSchema>;
 export type PaginationMeta = z.infer<typeof PaginationMetaSchema>;
