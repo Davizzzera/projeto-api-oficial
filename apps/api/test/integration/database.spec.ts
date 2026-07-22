@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createPrismaClient } from '@repo/database';
 
 describe('Database Integration', () => {
-  const dbUrl = (process.env.DATABASE_URL_TEST || process.env.DATABASE_URL || '').replace(/^"|"$/g, '');
+  const dbUrl = (process.env.DATABASE_URL_TEST || '').replace(/^"|"$/g, '');
   const prisma = createPrismaClient(dbUrl);
 
   beforeAll(async () => {

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../../infrastructure/redis/redis.service';
 import { DatabaseService } from '../../../infrastructure/database/database.service';
 import { createHash, randomBytes, createHmac, timingSafeEqual } from 'crypto';
@@ -9,7 +10,8 @@ import { RedisSession, RedisSessionSchema } from './schemas/redis-session.schema
 export class AuthService {
   constructor(
     private readonly redis: RedisService,
-    private readonly database: DatabaseService
+    private readonly database: DatabaseService,
+    private readonly config: ConfigService
   ) {}
 
   async generatePreAuthNonce(): Promise<string> {
@@ -153,6 +155,7 @@ export class AuthService {
         memberships: {
           where: {
             id: session.membershipId,
+            organizationId: session.organizationId,
             status: 'ACTIVE',
             organization: {
               status: 'ACTIVE',
@@ -196,7 +199,10 @@ export class AuthService {
   }
 
   generateCsrfToken(csrfSecret: string, action: string): string {
-    const hmacSecret = process.env.CSRF_HMAC_SECRET || 'default_hmac_secret_for_tests';
+    const hmacSecret = this.config.get<string>('CSRF_HMAC_SECRET');
+    if (!hmacSecret) {
+      throw new Error('CSRF_HMAC_SECRET is not configured');
+    }
     const hmac = createHmac('sha256', hmacSecret);
     hmac.update(`${action}:${csrfSecret}`);
     return hmac.digest('hex');

@@ -1,15 +1,15 @@
 
 // 8. REMOVA FALLBACK DE AMBIENTE
 // Se qualquer variável estiver ausente ou apontar para ambiente não permitido, a suíte deverá falhar antes de criar conexão.
-const dbUrl = process.env.DATABASE_URL;
-const redisUrl = process.env.REDIS_URL;
+const dbUrl = process.env.DATABASE_URL_TEST;
+const redisUrl = process.env.REDIS_URL_TEST;
 
 if (!dbUrl) {
-  throw new Error("DATABASE_URL is required for integration tests");
+  throw new Error("DATABASE_URL_TEST is required for integration tests");
 }
 
 if (!redisUrl) {
-  throw new Error("REDIS_URL is required for integration tests");
+  throw new Error("REDIS_URL_TEST is required for integration tests");
 }
 
 // Valide nome do banco termina em _test; porta PostgreSQL é 5433; porta Redis é 6380.

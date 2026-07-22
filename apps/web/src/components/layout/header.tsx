@@ -6,10 +6,10 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { useLayout } from "./layout-context"
 import { OrganizationSwitcher } from "@/components/ui-custom/organization-switcher"
 import { Input } from "@/components/ui/input"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import UserMenu from "./user-menu"
 
 export function Header() {
-  const { setSidebarOpen, sidebarCollapsed, setSidebarCollapsed, user } = useLayout()
+  const { setSidebarOpen, sidebarCollapsed, setSidebarCollapsed } = useLayout()
 
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-surface px-4 shadow-sm md:px-6">
@@ -55,12 +55,7 @@ export function Header() {
         </Button>
         
         <ThemeToggle />
-        
-        <div className="ml-2 pl-2 border-l">
-          <Avatar className="h-8 w-8 cursor-pointer ring-offset-background transition-all hover:ring-2 hover:ring-ring hover:ring-offset-2">
-            <AvatarFallback>{user?.name ? user.name.substring(0, 2).toUpperCase() : 'US'}</AvatarFallback>
-          </Avatar>
-        </div>
+        <UserMenu />
       </div>
     </header>
   )

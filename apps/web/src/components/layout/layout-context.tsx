@@ -23,7 +23,7 @@ interface LayoutContextType {
   organization?: OrganizationContext
 }
 
-const LayoutContext = React.createContext<LayoutContextType | undefined>(undefined)
+export const LayoutContext = React.createContext<LayoutContextType | undefined>(undefined)
 
 export function LayoutProvider({ 
   children,
