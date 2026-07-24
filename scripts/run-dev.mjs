@@ -22,7 +22,8 @@ if (fs.existsSync(envPath)) {
 // Forward args
 const args = process.argv.slice(2);
 
-const child = spawn('npx', ['turbo', 'run', 'dev', ...args], {
+const runner = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+const child = spawn(runner, ['exec', 'turbo', 'run', 'dev', ...args], {
   cwd: rootDir,
   stdio: 'inherit',
   env: process.env,
