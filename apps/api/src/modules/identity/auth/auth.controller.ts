@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Req, Res, Headers, Body, UnauthorizedException, ForbiddenException, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Req, Res, Headers, Body, UnauthorizedException, ForbiddenException, HttpCode, HttpStatus, UseGuards, Query, BadRequestException } from '@nestjs/common';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from './auth.service';
 import { RedisRateLimiterService } from '../../../infrastructure/redis/redis-rate-limiter.service';
-import { LoginInputSchema } from '@repo/contracts';
+import { LoginInputSchema, AuthCsrfActionSchema, SwitchOrganizationInputSchema } from '@repo/contracts';
 import { SessionGuard } from '../../../common/guards/session.guard';
 import { CurrentAuth } from '../../../common/decorators/current-auth.decorator';
 import { AuthPrincipal } from '../../../common/types/auth-principal';
@@ -16,7 +16,11 @@ export class AuthController {
 
   @Get('csrf')
   @HttpCode(HttpStatus.OK)
-  async getCsrf(@Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
+  async getCsrf(
+    @Req() req: FastifyRequest, 
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Query('action') actionQuery?: string
+  ) {
     res.header('Cache-Control', 'no-store');
     
     // Check if there is an active session
@@ -26,8 +30,14 @@ export class AuthController {
       if (unsignedSession.valid && unsignedSession.value) {
         const sessionData = await this.authService.getSession(unsignedSession.value);
         if (sessionData) {
+          const parseResult = AuthCsrfActionSchema.safeParse(actionQuery);
+          if (!parseResult.success) {
+            throw new BadRequestException('Invalid CSRF action');
+          }
+          const action = parseResult.data;
+
           // Authenticated CSRF token
-          const token = this.authService.generateCsrfToken(sessionData.csrfSecret, 'auth:logout');
+          const token = this.authService.generateCsrfToken(sessionData.csrfSecret, action);
           return { csrfToken: token };
         }
       }
@@ -131,6 +141,70 @@ export class AuthController {
       path: '/',
       signed: true,
       maxAge: maxAge,
+    });
+
+    return;
+  }
+
+  @Get('organizations')
+  @UseGuards(SessionGuard)
+  @HttpCode(HttpStatus.OK)
+  async getOrganizations(@CurrentAuth() auth: AuthPrincipal) {
+    return this.authService.getUserOrganizations(auth.userId, auth.organizationId);
+  }
+
+  @Post('switch-organization')
+  @UseGuards(SessionGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async switchOrganization(
+    @CurrentAuth() auth: AuthPrincipal,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Headers('x-csrf-token') csrfToken?: string
+  ) {
+    if (!req.authSessionKey) {
+      throw new ForbiddenException('Invalid session');
+    }
+
+    // Validate CSRF for switch-organization action
+    const sessionData = await this.authService.getSessionByKey(req.authSessionKey);
+    if (!sessionData || !csrfToken || !this.authService.verifyCsrfToken(sessionData.csrfSecret, 'auth:switch-organization', csrfToken)) {
+      throw new ForbiddenException('Invalid CSRF token');
+    }
+
+    // Validate body
+    const parsedBody = SwitchOrganizationInputSchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      throw new BadRequestException('Invalid request body');
+    }
+
+    const { organizationId: targetOrgId } = parsedBody.data;
+
+    // Reject switching to the same org
+    if (targetOrgId === auth.organizationId) {
+      throw new BadRequestException('Already in the target organization');
+    }
+
+    // Perform session rotation
+    const result = await this.authService.switchOrganization(
+      req.authSessionKey,
+      targetOrgId,
+      auth.userId,
+      auth.sessionVersion
+    );
+
+    if (!result) {
+      throw new ForbiddenException('No active membership in the target organization');
+    }
+
+    // Set the new rotated cookie
+    res.setCookie('session_id', result.sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      signed: true,
+      maxAge: result.maxAge,
     });
 
     return;

@@ -214,6 +214,113 @@ export class AuthService {
     };
   }
 
+  async getUserOrganizations(userId: string, currentOrganizationId: string) {
+    const prisma = this.database.getClient();
+    
+    const memberships = await prisma.membership.findMany({
+      where: {
+        userId,
+        status: 'ACTIVE',
+        organization: {
+          status: 'ACTIVE',
+          deletedAt: null
+        }
+      },
+      include: {
+        organization: true,
+        role: true
+      },
+      orderBy: {
+        organization: {
+          name: 'asc'
+        }
+      }
+    });
+
+    return memberships.map(m => ({
+      id: m.organization.id,
+      name: m.organization.name,
+      slug: m.organization.slug,
+      roleCode: m.role.code,
+      isCurrent: m.organization.id === currentOrganizationId
+    }));
+  }
+
+  async switchOrganization(
+    currentSessionKey: string,
+    targetOrganizationId: string,
+    userId: string,
+    sessionVersion: number
+  ): Promise<{ sessionId: string; maxAge: number; targetMembershipId: string } | null> {
+    const prisma = this.database.getClient();
+
+    // Validate target membership
+    const targetMembership = await prisma.membership.findFirst({
+      where: {
+        userId,
+        organizationId: targetOrganizationId,
+        status: 'ACTIVE',
+        organization: {
+          status: 'ACTIVE',
+          deletedAt: null
+        }
+      }
+    });
+
+    if (!targetMembership) {
+      return null;
+    }
+
+    // Read the current session to preserve original fields
+    const currentSessionData = await this.getSessionByKey(currentSessionKey);
+    if (!currentSessionData) {
+      return null;
+    }
+
+    // Rotate: new sessionId, new csrfSecret, preserve absoluteExpiresAt
+    const newSessionId = randomBytes(64).toString('hex');
+    const newHash = createHash('sha256').update(newSessionId).digest('hex');
+    const idleTimeout = 30 * 60;
+
+    const now = new Date();
+    const absExp = new Date(currentSessionData.absoluteExpiresAt);
+    const absoluteRemainingSecs = Math.floor((absExp.getTime() - now.getTime()) / 1000);
+
+    if (absoluteRemainingSecs <= 0) {
+      // Session has absolutely expired — destroy it
+      await this.destroySessionByKey(currentSessionKey);
+      return null;
+    }
+
+    const newTtl = Math.min(idleTimeout, absoluteRemainingSecs);
+
+    const rotatedSession: RedisSession = {
+      userId: currentSessionData.userId,
+      membershipId: targetMembership.id,
+      organizationId: targetOrganizationId,
+      sessionVersion,
+      createdAt: currentSessionData.createdAt,
+      lastActivityAt: now.toISOString(),
+      absoluteExpiresAt: currentSessionData.absoluteExpiresAt,
+      userAgent: currentSessionData.userAgent,
+      csrfSecret: randomBytes(32).toString('hex')
+    };
+
+    // Write new session key
+    await this.redis.setex(`session:${newHash}`, newTtl, JSON.stringify(rotatedSession));
+
+    // Destroy old session key
+    await this.destroySessionByKey(currentSessionKey);
+
+    const absoluteMaxAge = 7 * 24 * 60 * 60;
+
+    return {
+      sessionId: newSessionId,
+      maxAge: absoluteMaxAge,
+      targetMembershipId: targetMembership.id
+    };
+  }
+
   generateCsrfToken(csrfSecret: string, action: string): string {
     const hmacSecret = this.config.get<string>('CSRF_HMAC_SECRET');
     if (!hmacSecret) {
