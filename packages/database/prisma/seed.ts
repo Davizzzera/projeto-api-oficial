@@ -39,6 +39,40 @@ async function main() {
     });
   }
 
+  // 2.5 Role Permissions
+  const rolePermissionMap = {
+    'ADMIN': ['org:read', 'org:write', 'members:read', 'members:write'],
+    'MEMBER': ['org:read', 'members:read'],
+    'VIEWER': ['org:read']
+  };
+
+  const dbRoles = await prisma.role.findMany();
+  const dbPerms = await prisma.permission.findMany();
+
+  for (const [roleCode, permKeys] of Object.entries(rolePermissionMap)) {
+    const role = dbRoles.find(r => r.code === roleCode);
+    if (!role) continue;
+
+    for (const key of permKeys) {
+      const perm = dbPerms.find(p => p.key === key);
+      if (!perm) continue;
+
+      await prisma.rolePermission.upsert({
+        where: {
+          roleId_permissionId: {
+            roleId: role.id,
+            permissionId: perm.id
+          }
+        },
+        update: {},
+        create: {
+          roleId: role.id,
+          permissionId: perm.id
+        }
+      });
+    }
+  }
+
   // 3. Organização demonstrativa
   const seedEnvSchema = z.object({
     SEED_ADMIN_EMAIL: z.string().email(),
