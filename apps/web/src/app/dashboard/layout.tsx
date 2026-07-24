@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { getInternalApiUrl } from "@/lib/internal-api-url";
 
 export default async function DashboardLayout({
   children,
@@ -10,7 +11,9 @@ export default async function DashboardLayout({
   const headersList = await headers();
   const cookieHeader = headersList.get('cookie') || '';
 
-  const res = await fetch(`${process.env.INTERNAL_API_URL}/auth/me`, {
+  const internalApiUrl = getInternalApiUrl();
+
+  const res = await fetch(new URL("/auth/me", internalApiUrl), {
     headers: {
       'Cookie': cookieHeader
     },
