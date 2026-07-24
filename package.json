@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "node scripts/run-dev.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
@@ -32,5 +32,13 @@
     "turbo": "^2.0.4",
     "typescript": "^5.5.3"
   },
-  "packageManager": "pnpm@9.5.0"
+  "packageManager": "pnpm@9.5.0",
+  "pnpm": {
+    "patchedDependencies": {
+      "next-themes@0.4.6": "patches/next-themes@0.4.6.patch"
+    }
+  },
+  "dependencies": {
+    "server-only": "^0.0.1"
+  }
 }
