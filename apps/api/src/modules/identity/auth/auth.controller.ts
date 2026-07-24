@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Req, Res, Headers, Body, UnauthorizedException, ForbiddenException, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Req, Res, Headers, Body, UnauthorizedException, ForbiddenException, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from './auth.service';
 import { RedisRateLimiterService } from '../../../infrastructure/redis/redis-rate-limiter.service';
 import { LoginInputSchema } from '@repo/contracts';
+import { SessionGuard } from '../../../common/guards/session.guard';
+import { CurrentAuth } from '../../../common/decorators/current-auth.decorator';
+import { AuthPrincipal } from '../../../common/types/auth-principal';
 
 @Controller('auth')
 export class AuthController {
@@ -134,35 +137,17 @@ export class AuthController {
   }
 
   @Get('me')
+  @UseGuards(SessionGuard)
   @HttpCode(HttpStatus.OK)
-  async me(@Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
+  async me(@CurrentAuth() auth: AuthPrincipal, @Req() req: FastifyRequest, @Res({ passthrough: true }) res: FastifyReply) {
     res.header('Cache-Control', 'no-store');
 
-    const sessionCookie = req.cookies.session_id;
-    if (!sessionCookie) {
-      throw new UnauthorizedException('No session');
-    }
-
-    const unsignedSession = req.unsignCookie(sessionCookie);
-    if (!unsignedSession.valid || !unsignedSession.value) {
-      throw new UnauthorizedException('Invalid session signature');
-    }
-
-    const sessionData = await this.authService.getSession(unsignedSession.value);
-    if (!sessionData) {
-      res.clearCookie('session_id', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      });
-      throw new UnauthorizedException('Session expired or invalid');
-    }
-    
-    const meData = await this.authService.getMeData(sessionData);
+    const meData = await this.authService.getMeData(auth);
     if (!meData) {
       // Invalidate session if DB state doesn't match
-      await this.authService.destroySession(unsignedSession.value);
+      if (req.authSessionKey) {
+        await this.authService.destroySessionByKey(req.authSessionKey);
+      }
       res.clearCookie('session_id', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -176,26 +161,23 @@ export class AuthController {
   }
 
   @Post('logout')
+  @UseGuards(SessionGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(
     @Req() req: FastifyRequest, 
     @Res({ passthrough: true }) res: FastifyReply,
     @Headers('x-csrf-token') csrfToken?: string
   ) {
-    const sessionCookie = req.cookies.session_id;
-    if (sessionCookie) {
-      const unsignedSession = req.unsignCookie(sessionCookie);
-      if (unsignedSession.valid && unsignedSession.value) {
-        const sessionData = await this.authService.getSession(unsignedSession.value);
-        
-        if (!sessionData || !csrfToken || !this.authService.verifyCsrfToken(sessionData.csrfSecret, 'auth:logout', csrfToken)) {
-          throw new ForbiddenException('Invalid CSRF token for logout');
-        }
-
-        await this.authService.destroySession(unsignedSession.value);
+    if (req.authSessionKey) {
+      const sessionData = await this.authService.getSessionByKey(req.authSessionKey);
+      
+      if (!sessionData || !csrfToken || !this.authService.verifyCsrfToken(sessionData.csrfSecret, 'auth:logout', csrfToken)) {
+        throw new ForbiddenException('Invalid CSRF token for logout');
       }
+
+      await this.authService.destroySessionByKey(req.authSessionKey);
     } else {
-      throw new ForbiddenException('Invalid CSRF token for logout');
+      throw new ForbiddenException('Invalid session');
     }
 
     res.clearCookie('session_id', {

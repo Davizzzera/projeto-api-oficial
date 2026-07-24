@@ -3,13 +3,15 @@ import { Reflector } from '@nestjs/core';
 import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 
+import { vi } from 'vitest';
+
 describe('PermissionsGuard', () => {
   let guard: PermissionsGuard;
-  let reflector: jest.Mocked<Reflector>;
+  let reflector: any;
 
   beforeEach(() => {
     reflector = {
-      getAllAndOverride: jest.fn(),
+      getAllAndOverride: vi.fn(),
     } as any;
     guard = new PermissionsGuard(reflector);
   });

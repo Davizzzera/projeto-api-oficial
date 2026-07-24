@@ -5,6 +5,8 @@ import { DatabaseService } from '../../../infrastructure/database/database.servi
 import { createHash, randomBytes, createHmac, timingSafeEqual } from 'crypto';
 import { verifyPassword } from '@repo/security';
 import { RedisSession, RedisSessionSchema } from './schemas/redis-session.schema';
+import { AuthPrincipal } from '../../../common/types/auth-principal';
+
 
 @Injectable()
 export class AuthService {
@@ -142,20 +144,34 @@ export class AuthService {
     await this.redis.del(`session:${hash}`);
   }
 
-  async getMeData(session: RedisSession) {
+  async getSessionByKey(authSessionKey: string): Promise<RedisSession | null> {
+    const dataStr = await this.redis.get(authSessionKey);
+    if (!dataStr) return null;
+    try {
+      return RedisSessionSchema.parse(JSON.parse(dataStr));
+    } catch {
+      return null;
+    }
+  }
+
+  async destroySessionByKey(authSessionKey: string): Promise<void> {
+    await this.redis.del(authSessionKey);
+  }
+
+  async getMeData(auth: AuthPrincipal) {
     const prisma = this.database.getClient();
     
     const user = await prisma.user.findFirst({
       where: { 
-        id: session.userId,
+        id: auth.userId,
         status: 'ACTIVE',
         deletedAt: null
       },
       include: {
         memberships: {
           where: {
-            id: session.membershipId,
-            organizationId: session.organizationId,
+            id: auth.membershipId,
+            organizationId: auth.organizationId,
             status: 'ACTIVE',
             organization: {
               status: 'ACTIVE',
@@ -174,7 +190,7 @@ export class AuthService {
       return null;
     }
 
-    if (user.sessionVersion !== session.sessionVersion) {
+    if (user.sessionVersion !== auth.sessionVersion) {
       return null;
     }
 

@@ -3,13 +3,15 @@ import { SessionValidationService } from '../../modules/identity/auth/session-va
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 
+import { vi } from 'vitest';
+
 describe('SessionGuard', () => {
   let guard: SessionGuard;
-  let mockSessionValidationService: jest.Mocked<SessionValidationService>;
+  let mockSessionValidationService: any;
 
   beforeEach(() => {
     mockSessionValidationService = {
-      validateSession: jest.fn(),
+      validateSession: vi.fn(),
     } as any;
     guard = new SessionGuard(mockSessionValidationService);
   });

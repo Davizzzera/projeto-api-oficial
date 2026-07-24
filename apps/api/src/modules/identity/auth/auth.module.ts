@@ -5,6 +5,8 @@ import { SessionValidationService } from './session-validation.service';
 import { UserRepository } from '../repositories/user.repository';
 import { MembershipRepository } from '../repositories/membership.repository';
 import { OrganizationRepository } from '../repositories/organization.repository';
+import { SessionGuard } from '../../../common/guards/session.guard';
+import { PermissionsGuard } from '../../../common/guards/permissions.guard';
 
 @Module({
   controllers: [AuthController],
@@ -13,8 +15,10 @@ import { OrganizationRepository } from '../repositories/organization.repository'
     SessionValidationService,
     UserRepository,
     MembershipRepository,
-    OrganizationRepository
+    OrganizationRepository,
+    SessionGuard,
+    PermissionsGuard
   ],
-  exports: [AuthService, SessionValidationService],
+  exports: [AuthService, SessionValidationService, SessionGuard, PermissionsGuard],
 })
 export class AuthModule {}
