@@ -3,6 +3,17 @@ import { RedisService } from '../../../../infrastructure/redis/redis.service';
 import { RedisSession, RedisSessionSchema } from '../schemas/redis-session.schema';
 import { createHash, randomBytes } from 'crypto';
 
+const LUA_ROTATE_SESSION = `
+if redis.call("EXISTS", KEYS[1]) == 1 then
+  if redis.call("EXISTS", KEYS[2]) == 0 then
+    redis.call("SETEX", KEYS[2], ARGV[1], ARGV[2])
+    redis.call("DEL", KEYS[1])
+    return 1
+  end
+end
+return 0
+`;
+
 @Injectable()
 export class RedisSessionRepository {
   constructor(private readonly redis: RedisService) {}
@@ -13,11 +24,9 @@ export class RedisSessionRepository {
     targetOrganizationId: string,
     sessionVersion: number
   ): Promise<{ newSessionId: string, newSessionKey: string, oldSessionStr: string, newTtl: number } | null> {
-    await this.redis.watch(currentSessionKey);
     const currentSessionStr = await this.redis.get(currentSessionKey);
 
     if (!currentSessionStr) {
-      await this.redis.unwatch();
       return null;
     }
 
@@ -25,7 +34,6 @@ export class RedisSessionRepository {
     try {
       currentSessionData = RedisSessionSchema.parse(JSON.parse(currentSessionStr));
     } catch {
-      await this.redis.unwatch();
       return null;
     }
 
@@ -34,7 +42,6 @@ export class RedisSessionRepository {
     const absoluteRemainingSecs = Math.floor((absExp.getTime() - now.getTime()) / 1000);
 
     if (absoluteRemainingSecs <= 0) {
-      await this.redis.unwatch();
       await this.redis.del(currentSessionKey);
       return null;
     }
@@ -58,12 +65,18 @@ export class RedisSessionRepository {
       csrfSecret: randomBytes(32).toString('hex')
     };
 
-    const multi = this.redis.multi();
-    multi.del(currentSessionKey);
-    multi.setex(newSessionKey, newTtl, JSON.stringify(rotatedSession));
-    
-    const results = await multi.exec();
-    if (!results) {
+    const rotatedSessionStr = JSON.stringify(rotatedSession);
+
+    const result = await this.redis.eval(
+      LUA_ROTATE_SESSION,
+      2,
+      currentSessionKey,
+      newSessionKey,
+      newTtl.toString(),
+      rotatedSessionStr
+    );
+
+    if (result !== 1) {
       throw new ConflictException('Concurrent session rotation detected');
     }
 

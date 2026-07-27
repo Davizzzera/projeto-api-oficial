@@ -11,10 +11,9 @@ describe('RedisSessionRepository', () => {
 
   beforeEach(() => {
     redisService = {
-      watch: vi.fn(),
-      unwatch: vi.fn(),
       get: vi.fn(),
       del: vi.fn(),
+      eval: vi.fn(),
       multi: vi.fn(),
       options: { keyPrefix: 'test:' }
     };
@@ -28,10 +27,10 @@ describe('RedisSessionRepository', () => {
       const result = await repository.rotateSession('old-key', 'mem-1', 'org-1', 1);
 
       expect(result).toBeNull();
-      expect(redisService.unwatch).toHaveBeenCalled();
+      expect(redisService.eval).not.toHaveBeenCalled();
     });
 
-    it('deve rotacionar com sucesso e aplicar WATCH/MULTI', async () => {
+    it('deve rotacionar com sucesso usando script Lua atômico', async () => {
       const now = new Date();
       const absExp = new Date(now.getTime() + 60 * 60 * 1000).toISOString(); // +1h
       const userId = '00000000-0000-0000-0000-000000000001';
@@ -53,23 +52,24 @@ describe('RedisSessionRepository', () => {
       };
 
       vi.spyOn(redisService, 'get').mockResolvedValue(JSON.stringify(oldSession));
-
-      const multiMock = {
-        del: vi.fn().mockReturnThis(),
-        setex: vi.fn().mockReturnThis(),
-        exec: vi.fn().mockResolvedValue([ [null, 1], [null, 'OK'] ]),
-      };
-      vi.spyOn(redisService, 'multi').mockReturnValue(multiMock as any);
+      vi.spyOn(redisService, 'eval').mockResolvedValue(1);
 
       const result = await repository.rotateSession('old-key', newMemId, newOrgId, 2);
 
       expect(result).not.toBeNull();
       expect(result?.newSessionId).toBeDefined();
       expect(result?.newTtl).toBe(1800); // 30 mins
-      expect(multiMock.del).toHaveBeenCalledWith('old-key');
-      expect(multiMock.setex).toHaveBeenCalledWith(expect.any(String), 1800, expect.any(String));
+      expect(redisService.eval).toHaveBeenCalledWith(
+        expect.any(String), // LUA script
+        2, // keys count
+        'old-key',
+        expect.stringContaining('session:'),
+        '1800',
+        expect.any(String) // new session payload
+      );
       
-      const newSessionPayload = JSON.parse(multiMock.setex.mock.calls[0][2]);
+      const newSessionPayloadStr = redisService.eval.mock.calls[0][5];
+      const newSessionPayload = JSON.parse(newSessionPayloadStr);
       expect(newSessionPayload.userId).toBe(userId);
       expect(newSessionPayload.organizationId).toBe(newOrgId);
       expect(newSessionPayload.membershipId).toBe(newMemId);
@@ -100,13 +100,7 @@ describe('RedisSessionRepository', () => {
       };
 
       vi.spyOn(redisService, 'get').mockResolvedValue(JSON.stringify(oldSession));
-
-      const multiMock = {
-        del: vi.fn().mockReturnThis(),
-        setex: vi.fn().mockReturnThis(),
-        exec: vi.fn().mockResolvedValue([ [null, 1], [null, 'OK'] ]),
-      };
-      vi.spyOn(redisService, 'multi').mockReturnValue(multiMock as any);
+      vi.spyOn(redisService, 'eval').mockResolvedValue(1);
 
       const result = await repository.rotateSession('old-key', newMemId, newOrgId, 1);
 
@@ -114,7 +108,7 @@ describe('RedisSessionRepository', () => {
       expect(result?.newTtl).toBeLessThanOrEqual(600);
     });
 
-    it('deve lançar ConflictException se transação falhar (exec retornar null)', async () => {
+    it('deve lançar ConflictException se transação Lua falhar (retornar 0)', async () => {
       const now = new Date();
       const absExp = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
       const userId = '00000000-0000-0000-0000-000000000001';
@@ -136,13 +130,7 @@ describe('RedisSessionRepository', () => {
       };
 
       vi.spyOn(redisService, 'get').mockResolvedValue(JSON.stringify(oldSession));
-
-      const multiMock = {
-        del: vi.fn().mockReturnThis(),
-        setex: vi.fn().mockReturnThis(),
-        exec: vi.fn().mockResolvedValue(null),
-      };
-      vi.spyOn(redisService, 'multi').mockReturnValue(multiMock as any);
+      vi.spyOn(redisService, 'eval').mockResolvedValue(0);
 
       await expect(
         repository.rotateSession('old-key', newMemId, newOrgId, 1)
@@ -166,3 +154,4 @@ describe('RedisSessionRepository', () => {
     });
   });
 });
+
