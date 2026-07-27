@@ -104,3 +104,9 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL_TEST }}
       - name: Run integration tests
         run: pnpm run test:integration
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL_TEST }}
+          REDIS_URL: ${{ env.REDIS_URL_TEST }}
+          SESSION_COOKIE_SECRET: test-cookie-secret-that-is-at-least-32-chars
+          CSRF_HMAC_SECRET: test-csrf-hmac-secret-at-least-32-characters
+          NODE_ENV: test
