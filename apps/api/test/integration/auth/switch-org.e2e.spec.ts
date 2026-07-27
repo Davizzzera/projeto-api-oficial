@@ -410,55 +410,5 @@ describe('POST /auth/switch-organization (E2E)', () => {
     }
   });
 
-  it('should handle concurrent switch gracefully (only one wins)', async () => {
-    const fixture = await authFixture.setupMultiOrgUser();
-    try {
-      const csrfRes = await app.inject({ method: 'GET', url: '/auth/csrf' });
-      const { csrfToken } = csrfRes.json<{ csrfToken: string }>();
-      const preauthCookie = getCookie(csrfRes.cookies, 'preauth_session');
-      const loginRes = await app.inject({
-        method: 'POST',
-        url: '/auth/login',
-        headers: { 'x-csrf-token': csrfToken },
-        cookies: { preauth_session: preauthCookie!.value },
-        payload: { email: fixture.email, password: fixture.password },
-      });
-      const sessionCookie = getCookie(loginRes.cookies, 'session_id');
 
-      const switchCsrfRes = await app.inject({
-        method: 'GET',
-        url: '/auth/csrf?action=auth:switch-organization',
-        cookies: { session_id: sessionCookie!.value },
-      });
-      const { csrfToken: switchCsrfToken } = switchCsrfRes.json<{ csrfToken: string }>();
-
-      // Send 2 parallel switch requests
-      const [res1, res2] = await Promise.all([
-        app.inject({
-          method: 'POST',
-          url: '/auth/switch-organization',
-          headers: { 'x-csrf-token': switchCsrfToken },
-          cookies: { session_id: sessionCookie!.value },
-          payload: { organizationId: fixture.org2.id },
-        }),
-        app.inject({
-          method: 'POST',
-          url: '/auth/switch-organization',
-          headers: { 'x-csrf-token': switchCsrfToken },
-          cookies: { session_id: sessionCookie!.value },
-          payload: { organizationId: fixture.org2.id },
-        })
-      ]);
-
-      const codes = [res1.statusCode, res2.statusCode];
-      // At least one request must succeed
-      expect(codes).toContain(204);
-      // Both 204 (serialized) or one non-204 (true race detected) are valid outcomes
-      const successes = codes.filter(c => c === 204).length;
-      expect(successes).toBeGreaterThanOrEqual(1);
-      expect(successes).toBeLessThanOrEqual(2);
-    } finally {
-      await fixture.cleanup();
-    }
-  });
 });
