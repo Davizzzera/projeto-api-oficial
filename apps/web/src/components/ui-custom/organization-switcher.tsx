@@ -42,11 +42,15 @@ export function OrganizationSwitcher() {
     }
   }, [])
 
-  useEffect(() => {
-    if (open) {
-      fetchOrganizations()
-    }
-  }, [open, fetchOrganizations])
+  const handleToggle = useCallback(() => {
+    setOpen((prev) => {
+      const next = !prev
+      if (next) {
+        fetchOrganizations()
+      }
+      return next
+    })
+  }, [fetchOrganizations])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -106,7 +110,7 @@ export function OrganizationSwitcher() {
       <Button
         variant="outline"
         className="w-[200px] justify-between px-3 h-10"
-        onClick={() => setOpen(!open)}
+        onClick={handleToggle}
         disabled={switching}
       >
         <div className="flex items-center gap-2 overflow-hidden">

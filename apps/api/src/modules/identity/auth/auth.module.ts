@@ -7,6 +7,7 @@ import { MembershipRepository } from '../repositories/membership.repository';
 import { OrganizationRepository } from '../repositories/organization.repository';
 import { SessionGuard } from '../../../common/guards/session.guard';
 import { PermissionsGuard } from '../../../common/guards/permissions.guard';
+import { RedisSessionRepository } from './repositories/redis-session.repository';
 
 @Module({
   controllers: [AuthController],
@@ -17,7 +18,8 @@ import { PermissionsGuard } from '../../../common/guards/permissions.guard';
     MembershipRepository,
     OrganizationRepository,
     SessionGuard,
-    PermissionsGuard
+    PermissionsGuard,
+    RedisSessionRepository
   ],
   exports: [AuthService, SessionValidationService, SessionGuard, PermissionsGuard],
 })

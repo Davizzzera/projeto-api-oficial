@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../../infrastructure/redis/redis.service';
 import { DatabaseService } from '../../../infrastructure/database/database.service';
@@ -6,6 +6,7 @@ import { createHash, randomBytes, createHmac, timingSafeEqual } from 'crypto';
 import { verifyPassword } from '@repo/security';
 import { RedisSession, RedisSessionSchema } from './schemas/redis-session.schema';
 import { AuthPrincipal } from '../../../common/types/auth-principal';
+import { RedisSessionRepository } from './repositories/redis-session.repository';
 
 
 @Injectable()
@@ -13,7 +14,8 @@ export class AuthService {
   constructor(
     private readonly redis: RedisService,
     private readonly database: DatabaseService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    private readonly redisSessionRepository: RedisSessionRepository
   ) {}
 
   async generatePreAuthNonce(): Promise<string> {
@@ -271,51 +273,68 @@ export class AuthService {
       return null;
     }
 
-    // Read the current session to preserve original fields
-    const currentSessionData = await this.getSessionByKey(currentSessionKey);
-    if (!currentSessionData) {
+    // Perform atomic rotation
+    const rotationResult = await this.redisSessionRepository.rotateSession(
+      currentSessionKey,
+      targetMembership.id,
+      targetOrganizationId,
+      sessionVersion
+    );
+
+    if (!rotationResult) {
       return null;
     }
 
-    // Rotate: new sessionId, new csrfSecret, preserve absoluteExpiresAt
-    const newSessionId = randomBytes(64).toString('hex');
-    const newHash = createHash('sha256').update(newSessionId).digest('hex');
-    const idleTimeout = 30 * 60;
+    const currentSessionData = JSON.parse(rotationResult.oldSessionStr);
 
-    const now = new Date();
-    const absExp = new Date(currentSessionData.absoluteExpiresAt);
-    const absoluteRemainingSecs = Math.floor((absExp.getTime() - now.getTime()) / 1000);
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.auditLog.create({
+          data: {
+            action: 'SWITCH_ORGANIZATION',
+            entityType: 'SESSION',
+            entityId: currentSessionKey,
+            organizationId: targetOrganizationId,
+            actorUserId: userId,
+            metadata: {
+              fromOrganizationId: currentSessionData.organizationId,
+              toOrganizationId: targetOrganizationId,
+              fromMembershipId: currentSessionData.membershipId,
+              toMembershipId: targetMembership.id
+            }
+          }
+        });
 
-    if (absoluteRemainingSecs <= 0) {
-      // Session has absolutely expired — destroy it
-      await this.destroySessionByKey(currentSessionKey);
-      return null;
+        await tx.securityEvent.create({
+          data: {
+            eventType: 'SESSION_ROTATED',
+            severity: 'INFO',
+            userId,
+            organizationId: targetOrganizationId,
+            metadata: {
+              fromOrganizationId: currentSessionData.organizationId,
+              toOrganizationId: targetOrganizationId,
+              fromMembershipId: currentSessionData.membershipId,
+              toMembershipId: targetMembership.id
+            }
+          }
+        });
+      });
+    } catch (error) {
+      // Rollback session rotation
+      await this.redisSessionRepository.rollbackRotation(
+        currentSessionKey,
+        rotationResult.newSessionKey,
+        rotationResult.oldSessionStr,
+        rotationResult.newTtl
+      );
+      throw new InternalServerErrorException('Failed to persist audit log, rotation aborted');
     }
-
-    const newTtl = Math.min(idleTimeout, absoluteRemainingSecs);
-
-    const rotatedSession: RedisSession = {
-      userId: currentSessionData.userId,
-      membershipId: targetMembership.id,
-      organizationId: targetOrganizationId,
-      sessionVersion,
-      createdAt: currentSessionData.createdAt,
-      lastActivityAt: now.toISOString(),
-      absoluteExpiresAt: currentSessionData.absoluteExpiresAt,
-      userAgent: currentSessionData.userAgent,
-      csrfSecret: randomBytes(32).toString('hex')
-    };
-
-    // Write new session key
-    await this.redis.setex(`session:${newHash}`, newTtl, JSON.stringify(rotatedSession));
-
-    // Destroy old session key
-    await this.destroySessionByKey(currentSessionKey);
 
     const absoluteMaxAge = 7 * 24 * 60 * 60;
 
     return {
-      sessionId: newSessionId,
+      sessionId: rotationResult.newSessionId,
       maxAge: absoluteMaxAge,
       targetMembershipId: targetMembership.id
     };
