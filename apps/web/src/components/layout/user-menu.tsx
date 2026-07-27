@@ -18,7 +18,7 @@ export default function UserMenu() {
     setLoading(true)
     setError("")
     try {
-      const csrfRes = await fetch("/api/auth/csrf", {
+      const csrfRes = await fetch("/api/auth/csrf?action=auth:logout", {
         method: "GET",
         credentials: "include",
       })

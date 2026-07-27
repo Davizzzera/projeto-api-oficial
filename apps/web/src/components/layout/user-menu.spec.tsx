@@ -66,7 +66,7 @@ describe("UserMenu", () => {
     })
 
     expect(global.fetch).toHaveBeenCalledTimes(2)
-    expect(global.fetch).toHaveBeenNthCalledWith(1, "/api/auth/csrf", expect.any(Object))
+    expect(global.fetch).toHaveBeenNthCalledWith(1, "/api/auth/csrf?action=auth:logout", expect.any(Object))
     expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/auth/logout", {
       method: "POST",
       credentials: "include",

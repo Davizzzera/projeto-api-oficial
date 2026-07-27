@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { createPrismaClient, PrismaClient } from '@repo/database';
 import { AuthFixture } from '../fixtures/auth.fixture';
 import { ValidationPipe } from '@nestjs/common';
@@ -58,6 +58,10 @@ describe('Auth Integration (E2E)', () => {
     await app.close();
     await prisma.$disconnect();
     redis.disconnect();
+  });
+
+  afterEach(async () => {
+    await redis.flushdb();
   });
 
   const getCookie = (cookies: { name: string, value: string }[], name: string) => {
@@ -433,7 +437,7 @@ describe('Auth Integration (E2E)', () => {
 
         const authCsrfRes = await app.inject({
           method: 'GET',
-          url: '/auth/csrf',
+          url: '/auth/csrf?action=auth:logout',
           cookies: { session_id: sessionCookie!.value }
         });
 

@@ -1,17 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../../infrastructure/redis/redis.service';
 import { DatabaseService } from '../../../infrastructure/database/database.service';
 import { createHash, randomBytes, createHmac, timingSafeEqual } from 'crypto';
 import { verifyPassword } from '@repo/security';
 import { RedisSession, RedisSessionSchema } from './schemas/redis-session.schema';
+import { AuthPrincipal } from '../../../common/types/auth-principal';
+import { RedisSessionRepository } from './repositories/redis-session.repository';
+
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly redis: RedisService,
     private readonly database: DatabaseService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    private readonly redisSessionRepository: RedisSessionRepository
   ) {}
 
   async generatePreAuthNonce(): Promise<string> {
@@ -142,20 +146,34 @@ export class AuthService {
     await this.redis.del(`session:${hash}`);
   }
 
-  async getMeData(session: RedisSession) {
+  async getSessionByKey(authSessionKey: string): Promise<RedisSession | null> {
+    const dataStr = await this.redis.get(authSessionKey);
+    if (!dataStr) return null;
+    try {
+      return RedisSessionSchema.parse(JSON.parse(dataStr));
+    } catch {
+      return null;
+    }
+  }
+
+  async destroySessionByKey(authSessionKey: string): Promise<void> {
+    await this.redis.del(authSessionKey);
+  }
+
+  async getMeData(auth: AuthPrincipal) {
     const prisma = this.database.getClient();
     
     const user = await prisma.user.findFirst({
       where: { 
-        id: session.userId,
+        id: auth.userId,
         status: 'ACTIVE',
         deletedAt: null
       },
       include: {
         memberships: {
           where: {
-            id: session.membershipId,
-            organizationId: session.organizationId,
+            id: auth.membershipId,
+            organizationId: auth.organizationId,
             status: 'ACTIVE',
             organization: {
               status: 'ACTIVE',
@@ -174,7 +192,7 @@ export class AuthService {
       return null;
     }
 
-    if (user.sessionVersion !== session.sessionVersion) {
+    if (user.sessionVersion !== auth.sessionVersion) {
       return null;
     }
 
@@ -195,6 +213,130 @@ export class AuthService {
         id: membership.id,
         roleCode: membership.role.code
       }
+    };
+  }
+
+  async getUserOrganizations(userId: string, currentOrganizationId: string) {
+    const prisma = this.database.getClient();
+    
+    const memberships = await prisma.membership.findMany({
+      where: {
+        userId,
+        status: 'ACTIVE',
+        organization: {
+          status: 'ACTIVE',
+          deletedAt: null
+        }
+      },
+      include: {
+        organization: true,
+        role: true
+      },
+      orderBy: {
+        organization: {
+          name: 'asc'
+        }
+      }
+    });
+
+    return memberships.map(m => ({
+      id: m.organization.id,
+      name: m.organization.name,
+      slug: m.organization.slug,
+      roleCode: m.role.code,
+      isCurrent: m.organization.id === currentOrganizationId
+    }));
+  }
+
+  async switchOrganization(
+    currentSessionKey: string,
+    targetOrganizationId: string,
+    userId: string,
+    sessionVersion: number
+  ): Promise<{ sessionId: string; maxAge: number; targetMembershipId: string } | null> {
+    const prisma = this.database.getClient();
+
+    // Validate target membership
+    const targetMembership = await prisma.membership.findFirst({
+      where: {
+        userId,
+        organizationId: targetOrganizationId,
+        status: 'ACTIVE',
+        organization: {
+          status: 'ACTIVE',
+          deletedAt: null
+        }
+      }
+    });
+
+    if (!targetMembership) {
+      return null;
+    }
+
+    // Perform atomic rotation
+    const rotationResult = await this.redisSessionRepository.rotateSession(
+      currentSessionKey,
+      targetMembership.id,
+      targetOrganizationId,
+      sessionVersion
+    );
+
+    if (!rotationResult) {
+      return null;
+    }
+
+    const currentSessionData = JSON.parse(rotationResult.oldSessionStr);
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.auditLog.create({
+          data: {
+            action: 'SWITCH_ORGANIZATION',
+            entityType: 'SESSION',
+            entityId: currentSessionKey,
+            organizationId: targetOrganizationId,
+            actorUserId: userId,
+            metadata: {
+              fromOrganizationId: currentSessionData.organizationId,
+              toOrganizationId: targetOrganizationId,
+              fromMembershipId: currentSessionData.membershipId,
+              toMembershipId: targetMembership.id
+            }
+          }
+        });
+
+        await tx.securityEvent.create({
+          data: {
+            eventType: 'SESSION_ROTATED',
+            severity: 'INFO',
+            userId,
+            organizationId: targetOrganizationId,
+            metadata: {
+              fromOrganizationId: currentSessionData.organizationId,
+              toOrganizationId: targetOrganizationId,
+              fromMembershipId: currentSessionData.membershipId,
+              toMembershipId: targetMembership.id
+            }
+          }
+        });
+      });
+    } catch (error) {
+      // Rollback session rotation
+      await this.redisSessionRepository.rollbackRotation(
+        currentSessionKey,
+        rotationResult.newSessionKey,
+        rotationResult.oldSessionStr,
+        rotationResult.newTtl
+      );
+      throw new InternalServerErrorException('Failed to persist audit log, rotation aborted');
+    }
+
+    const absoluteMaxAge = 7 * 24 * 60 * 60;
+
+    return {
+      sessionId: rotationResult.newSessionId,
+      maxAge: absoluteMaxAge,
+      targetMembershipId: targetMembership.id
     };
   }
 
