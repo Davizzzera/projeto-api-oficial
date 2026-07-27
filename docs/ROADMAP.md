@@ -45,6 +45,15 @@ mas devem ser resolvidos antes de ir para produção.
 - [ ] Docker multi-stage build para a API (produção)
 - [ ] Configurar `.env.production` com secrets manager (ex: Vault, AWS SSM)
 
+## Marco 3.5 — Autorização Multi-Tenant e Runtime
+- [x] Autorização multi-tenant (validação centralizada de sessão)
+- [x] Guards e permissions dinâmicos baseados no role atual
+- [x] Listagem de organizações disponíveis (Organizations)
+- [x] Switch seguro de organização (OrganizationSwitcher no UI)
+- [x] Rotação atômica da sessão (WATCH + MULTI/EXEC)
+- [x] Transações de banco com AuditLog e SecurityEvent integrados
+- [x] Pipeline CI com integração contínua (testes integrados via GitHub Actions)
+
 ## Marco 4 — Meta WhatsApp API
 
 - [ ] Implementar módulo de integração com a Meta Graph API

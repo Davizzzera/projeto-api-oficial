@@ -755,6 +755,7 @@ flowchart LR
 | **1** | Fundação do Backend | ✅ Completo | Monorepo, User/Org/Membership, RBAC (Role+Permission), sessões Redis, CSRF dual, rate limiting, audit logs append-only, security events, health checks |
 | **2** | Dashboard & UI Shell | ✅ Completo | Next.js 16 app shell, sidebar, header, theme toggle, KPI cards, Recharts, TanStack Table, SSR auth guard, org switcher |
 | **3** | Storage & Email | 🟡 Parcial | MinIO configurado (bucket + user), Mailpit para dev |
+| **3.5**| Tenant Runtime | ✅ Completo | Autorização multi-tenant, guards/permissions runtime, switch de org com rotação atômica, auditoria, CI integrado |
 | **4** | Meta WhatsApp API | ⬜ Pendente | Integração Graph API v21.0, webhooks Meta, templates HSM, instâncias WABA, modo Mock |
 | **5** | CRM & Automação | ⬜ Pendente | Contatos, conversas, funis, tags, quick replies, chatbot flows |
 | **6** | Analytics & Billing | ⬜ Pendente | KPIs reais, relatórios, Stripe, limites de plano |
