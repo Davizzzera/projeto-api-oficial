@@ -31,9 +31,9 @@ describe('RedisSessionRepository (Integration)', () => {
     const currentSessionKey = 'session:old_hash_123';
     
     const mockSession = {
-      userId: 'user-1',
-      membershipId: 'mem-1',
-      organizationId: 'org-1',
+      userId: '00000000-0000-0000-0000-000000000001',
+      membershipId: '00000000-0000-0000-0000-000000000002',
+      organizationId: '00000000-0000-0000-0000-000000000003',
       sessionVersion: 1,
       createdAt: new Date().toISOString(),
       lastActivityAt: new Date().toISOString(),
@@ -44,8 +44,8 @@ describe('RedisSessionRepository (Integration)', () => {
     
     await redisService.set(currentSessionKey, JSON.stringify(mockSession));
 
-    const targetMembershipId = 'mem-2';
-    const targetOrganizationId = 'org-2';
+    const targetMembershipId = '00000000-0000-0000-0000-000000000004';
+    const targetOrganizationId = '00000000-0000-0000-0000-000000000005';
     const sessionVersion = 1;
 
     // Both calls start exactly simultaneously
